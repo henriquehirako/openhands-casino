@@ -1,0 +1,192 @@
+# Review / fix loop for one agent PR, one round per run, every run green.
+#
+#   guard → reviewer ‖ security ‖ ci → route → fix   ──dispatch──▶ pr.yml round+1
+#                                            → merge ──dispatch──▶ sdlc.yml pr=N
+#                                            → human (label needs-human, stop)
+#
+# Started by sdlc.yml after the coder opens a PR. PRs made with GITHUB_TOKEN
+# fire no pull_request event, so dispatch is the trigger. Bounded by
+# MAX_ROUNDS fix rounds.
+name: pr
+run-name: "pr · #${{ inputs.pr }} · round ${{ inputs.round || '0' }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number"
+        required: true
+      issue:
+        description: "Ticket the PR closes"
+        required: false
+        default: ""
+      round:
+        description: "Fix round, set by the fix job"
+        required: false
+        default: "0"
+
+concurrency:
+  group: pr-${{ inputs.pr }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+env:
+  CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+  GH_TOKEN: ${{ github.token }}
+  PR: ${{ inputs.pr }}
+  ISSUE: ${{ inputs.issue }}
+  ROUND: ${{ inputs.round || '0' }}
+  MAX_ROUNDS: "2"
+
+jobs:
+  guard:
+    if: vars.AGENTS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "reviewing PR #$PR, round $ROUND of $MAX_ROUNDS" >> "$GITHUB_STEP_SUMMARY"
+
+  reviewer:
+    needs: guard
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.run.outputs.verdict || 'error' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: gh pr checkout "$PR"
+      - id: run
+        run: python agents/run.py reviewer --pr "$PR" || echo "reviewer exited non-zero" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-findings
+          path: reviewer-findings.json
+          if-no-files-found: ignore
+
+  security:
+    needs: guard
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.run.outputs.verdict || 'error' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: gh pr checkout "$PR"
+      - id: run
+        run: python agents/run.py security --pr "$PR" || echo "security exited non-zero" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: security-findings
+          path: security-findings.json
+          if-no-files-found: ignore
+
+  ci:
+    # Tests on the PR head. Red tests are a route, not a failed job.
+    needs: guard
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.test.outputs.ok }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest
+      - run: gh pr checkout "$PR"
+      - id: test
+        run: |
+          set +e
+          python -m pytest tests/ -q > pytest.log 2>&1
+          rc=$?
+          set -e
+          cat pytest.log
+          if [ "$rc" -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+          { echo '```'; tail -30 pytest.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pytest-log
+          path: pytest.log
+
+  route:
+    # Decide: merge, fix, or human. Pure expression logic, no LLM.
+    needs: [reviewer, security, ci]
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.decide.outputs.outcome }}
+    steps:
+      - id: decide
+        env:
+          R: ${{ needs.reviewer.outputs.verdict }}
+          S: ${{ needs.security.outputs.verdict }}
+          CI: ${{ needs.ci.outputs.ok }}
+        run: |
+          echo "reviewer=$R security=$S ci_green=$CI round=$ROUND" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$R" = "pass" ] && [ "$S" = "pass" ] && [ "$CI" = "true" ]; then out=merge
+          elif [ "$R" = "error" ] || [ "$S" = "error" ]; then out=human
+          elif [ "$ROUND" -lt "$MAX_ROUNDS" ]; then out=fix
+          else out=human; fi
+          echo "outcome=$out" | tee -a "$GITHUB_OUTPUT" "$GITHUB_STEP_SUMMARY"
+
+  fix:
+    # Coder addresses findings and red tests, then the next round reviews again.
+    needs: [route, ci]
+    if: needs.route.outputs.outcome == 'fix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: merge findings
+        env:
+          CI_OK: ${{ needs.ci.outputs.ok }}
+        run: |
+          python - <<'EOF'
+          import json, glob, os
+          out = {"findings": []}
+          for f in glob.glob("artifacts/*-findings/*.json"):
+              out["findings"] += json.load(open(f)).get("findings", [])
+          if os.environ.get("CI_OK") != "true":
+              logs = glob.glob("artifacts/pytest-log/pytest.log")
+              tail = open(logs[0]).read()[-3000:] if logs else "no log"
+              out["findings"].append({"item": "tests", "severity": "must", "file": "tests/",
+                                      "detail": "python -m pytest tests/ -q is red on this branch:\n" + tail})
+          json.dump(out, open("fix.json", "w"), indent=2)
+          print(json.dumps(out, indent=2))
+          EOF
+      - run: python agents/run.py coder --pr "$PR" --fix fix.json || echo "coder fix exited non-zero" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: next round
+        run: |
+          gh workflow run pr.yml -f pr="$PR" -f issue="$ISSUE" -f round="$((ROUND + 1))"
+          echo "dispatched round $((ROUND + 1))" >> "$GITHUB_STEP_SUMMARY"
+
+  merge:
+    # Hand the green PR back to sdlc.yml, which merges and chains.
+    needs: route
+    if: needs.route.outputs.outcome == 'merge'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "### pr: ready to merge
+          Reviewer pass, security pass, CI green at round $ROUND. Handing to sdlc for merge." || true
+          gh workflow run sdlc.yml --repo "$GITHUB_REPOSITORY" -f pr="$PR" -f issue="$ISSUE"
+          echo "dispatched sdlc merge for PR #$PR" >> "$GITHUB_STEP_SUMMARY"
+
+  human:
+    needs: route
+    if: needs.route.outputs.outcome == 'human'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label needs-human || true
+          [ -n "$ISSUE" ] && gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --add-label needs-human --remove-label in-review || true
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "### pr: needs a human
+          After $ROUND fix round(s) the PR is not green, or a review job errored. The agents stop here." || true
+          echo "PR #$PR needs a human" >> "$GITHUB_STEP_SUMMARY"
