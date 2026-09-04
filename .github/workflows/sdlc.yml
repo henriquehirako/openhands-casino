@@ -88,6 +88,10 @@ jobs:
       - uses: ./.github/actions/setup
       - id: run
         run: python agents/run.py coder --issue "${{ needs.janitor.outputs.issue }}"
+      - name: ticket needs a human
+        # Coder failed or opened no PR: leave the ready queue so the chain cannot loop on it.
+        if: failure() || steps.run.outputs.pr == ''
+        run: gh issue edit "${{ needs.janitor.outputs.issue }}" --remove-label ready --add-label needs-human
       - name: ticket in review
         # ready -> in-review so a chained run never picks this ticket twice.
         if: steps.run.outputs.pr != ''
@@ -162,7 +166,11 @@ jobs:
     # Tests on the PR head. Lives here because PRs made with GITHUB_TOKEN do
     # not fire pull_request events.
     needs: [coder, reviewer, security, fix]
-    if: always() && needs.coder.outputs.pr != '' && needs.fix.result != 'failure'
+    # Both review jobs must have finished with a verdict. Then either both passed, or the fix round ran and succeeded.
+    if: >-
+      always() && needs.coder.outputs.pr != ''
+      && needs.reviewer.result == 'success' && needs.security.result == 'success'
+      && ((needs.reviewer.outputs.verdict == 'pass' && needs.security.outputs.verdict == 'pass') || needs.fix.result == 'success')
     runs-on: ubuntu-latest
     outputs:
       ok: ${{ steps.test.outputs.ok }}
@@ -194,8 +202,9 @@ jobs:
           else
             gh pr edit "$PR" --add-label needs-human
             gh issue edit "${{ needs.janitor.outputs.issue }}" --add-label needs-human
+            gh issue edit "${{ needs.janitor.outputs.issue }}" --remove-label ready --remove-label in-review || true
             gh pr comment "$PR" --body "### sdlc: needs a human
-          Tests were red after the review round. The agents stop here."
+          Reviews did not both pass, or tests were red after the fix round. The agents stop here."
           fi
 
   chain:
