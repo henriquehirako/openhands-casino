@@ -2,6 +2,8 @@
 
 Blackjack simulator. `pip install pytest`, then `python -m pytest tests/ -q` to test and `python -m casino.simulate` to run a session.
 
+The casino is standard library only. Beyond pytest there is nothing to install.
+
 ## Agent layer
 
 The casino is not the point. The point is the layer of agents that maintains it. The engineer is the product owner and writes tickets. Nothing else. Agents pick tickets, implement them, review the PR, fix findings, merge, and file new tickets from what they observe. Issue labels are the whole state machine. Every agent step shows up as a job in the GitHub Actions graph and as a comment on the PR or issue, so you can reconstruct what happened without having watched it.
