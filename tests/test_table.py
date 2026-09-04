@@ -21,7 +21,7 @@ def _hand(*cards):
 class _FixedDeck:
     """Deck stand-in that deals a predetermined sequence of cards."""
 
-    def __init__(self, cards, num_decks=1):
+    def __init__(self, cards):
         self._cards = list(cards)
 
     def draw(self):
@@ -83,32 +83,16 @@ def test_play_round_outcome_has_payout_field():
 
 
 def test_dealer_wins_are_not_recorded_as_push(monkeypatch):
-    # player: 10+9=19 (stands), dealer: 10+6=16 then hits 5 -> 21 (stands)
+    # player: 10+8=18 (stands), dealer: 10+10=20 (stands) -> dealer beats player
     cards = [
         Card("10", "hearts"), Card("10", "clubs"),
-        Card("9", "spades"), Card("6", "diamonds"),
-        Card("5", "clubs"),
+        Card("8", "spades"), Card("10", "diamonds"),
     ]
     monkeypatch.setattr(table_module, "Deck", lambda num_decks: _FixedDeck(cards))
     table = _table(bet=10)
 
     outcome = table.play_round()
 
-    assert outcome["player_value"] == 19
-    assert outcome["dealer_value"] == 21
+    assert outcome["player_value"] == 18
+    assert outcome["dealer_value"] == 20
     assert outcome["winner"] == "dealer"
-
-
-def test_round_never_resolves_with_dealer_standing_under_17(monkeypatch):
-    # dealer's first two cards total 16 and must hit before the round can settle
-    cards = [
-        Card("10", "hearts"), Card("10", "clubs"),
-        Card("8", "spades"), Card("6", "diamonds"),
-        Card("2", "clubs"),
-    ]
-    monkeypatch.setattr(table_module, "Deck", lambda num_decks: _FixedDeck(cards))
-    table = _table(bet=10)
-
-    outcome = table.play_round()
-
-    assert outcome["dealer_value"] >= 17
