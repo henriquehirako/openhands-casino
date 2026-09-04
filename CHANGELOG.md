@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- docs(cards): add module and class docstrings to `casino/cards.py` (#40)
 - test: add `tests/test_monitor.py` covering `Monitor.record`'s one-line-per-record append behavior and the `OUTCOMES_PATH` default (#38)
 - test(table): restore the round-level regression test for the dealer never standing under 17, plus a multi-hit edge case (#32)
 - fix(strategies,table): dealer hits until 17 again and a higher dealer hand no longer resolves as a push (#31)
