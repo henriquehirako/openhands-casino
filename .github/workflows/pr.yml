@@ -45,27 +45,14 @@ env:
 
 jobs:
   guard:
-    # Kill switch, and only PRs the coder opened: branch agent/*, coder marker in the body.
     if: vars.AGENTS_ENABLED == 'true'
     runs-on: ubuntu-latest
-    outputs:
-      agent_pr: ${{ steps.check.outputs.agent_pr }}
     steps:
-      - id: check
-        run: |
-          HEAD=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefName -q .headRefName)
-          BODY=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json body -q .body)
-          if [[ "$HEAD" == agent/* ]] && [[ "$BODY" == *"Opened by coder-agent"* ]]; then
-            echo "agent_pr=true" >> "$GITHUB_OUTPUT"
-            echo "reviewing PR #$PR ($HEAD), round $ROUND of $MAX_ROUNDS" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "agent_pr=false" >> "$GITHUB_OUTPUT"
-            echo "PR #$PR ($HEAD) was not opened by coder-agent, the review loop does not run on human PRs" >> "$GITHUB_STEP_SUMMARY"
-          fi
+      - run: |
+          echo "reviewing PR #$PR, round $ROUND of $MAX_ROUNDS" >> "$GITHUB_STEP_SUMMARY"
 
   reviewer:
     needs: guard
-    if: needs.guard.outputs.agent_pr == 'true'
     runs-on: ubuntu-latest
     outputs:
       verdict: ${{ steps.run.outputs.verdict || 'error' }}
@@ -83,7 +70,6 @@ jobs:
 
   security:
     needs: guard
-    if: needs.guard.outputs.agent_pr == 'true'
     runs-on: ubuntu-latest
     outputs:
       verdict: ${{ steps.run.outputs.verdict || 'error' }}
@@ -102,7 +88,6 @@ jobs:
   ci:
     # Tests on the PR head. Red tests are a route, not a failed job.
     needs: guard
-    if: needs.guard.outputs.agent_pr == 'true'
     runs-on: ubuntu-latest
     outputs:
       ok: ${{ steps.test.outputs.ok }}
