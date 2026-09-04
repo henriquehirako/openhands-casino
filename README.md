@@ -4,6 +4,15 @@ Blackjack simulator. `pip install pytest`, then `python -m pytest tests/ -q` to 
 
 The casino is standard library only. Beyond pytest there is nothing to install.
 
+Pass `seed` to `run()` for a reproducible session: the same `seed` and
+`num_rounds` always write the same `outcomes.jsonl`.
+
+```
+python -c "from casino.simulate import run; run(num_rounds=100, seed=42)"
+```
+
+Leave `seed` unset (the default, `None`) for a fresh, unseeded run each time.
+
 ## Agent layer
 
 The casino is not the point. The point is the layer of agents that maintains it. The engineer is the product owner and writes tickets. Nothing else. Agents pick tickets, implement them, review the PR, fix findings, merge, and file new tickets from what they observe. Issue labels are the whole state machine. Every agent step shows up as a job in the GitHub Actions graph and as a comment on the PR or issue, so you can reconstruct what happened without having watched it.
