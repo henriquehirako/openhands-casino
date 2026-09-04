@@ -49,7 +49,9 @@ dispatch. The Actions list reads as a log: `sdlc · #6`, `pr · #11 · round 0`,
   definition-of-done step, PR with `Closes #N`. Ticket moves `ready` to
   `in-review`. Dispatches `pr.yml` round 0. No PR: ticket gets `needs-human`.
 - `reviewer`, `security`, `ci` run in parallel on the PR head. `ci` lives
-  here because PRs made with `GITHUB_TOKEN` fire no `pull_request` event.
+  here so the merge gate never depends on an event. With the optional
+  secret `GH_PAT` the coder pushes as a user, the PR fires real
+  `pull_request` events and `ci.yml` also shows in the PR checks tab.
 - `route`: pure expression logic. Both verdicts pass and CI green: merge.
   A verdict errored: human. Round below `MAX_ROUNDS` (2): fix. Else human.
 - `fix`: `run.py coder --pr N --fix fix.json` with review findings plus the

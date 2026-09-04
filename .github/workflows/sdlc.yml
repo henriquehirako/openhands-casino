@@ -91,6 +91,8 @@ jobs:
 
   coder:
     # Implements the ticket and opens the PR, then hands it to pr.yml.
+    # Pushes with GH_PAT when set, so the PR fires real pull_request events
+    # and ci.yml shows in the PR checks tab. GITHUB_TOKEN pushes fire nothing.
     needs: janitor
     if: needs.janitor.outputs.issue != ''
     runs-on: ubuntu-latest
@@ -100,8 +102,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GH_PAT || github.token }}
       - uses: ./.github/actions/setup
       - id: run
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: python agents/run.py coder --issue "${{ needs.janitor.outputs.issue }}" || echo "coder exited non-zero" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: hand off to pr workflow
         if: steps.run.outputs.pr != ''
@@ -125,6 +130,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: merge
+        env:
+          # With GH_PAT the merge fires a real push event, which also wakes the watchdog.
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           PR="${{ inputs.pr }}"
           ISSUE="${{ inputs.issue }}"
@@ -135,8 +143,8 @@ jobs:
             # Close the ticket by hand. The Closes #N link did not fire on a bot merge.
             [ -n "$ISSUE" ] && gh issue close "$ISSUE" --comment "Merged in PR #$PR by sdlc." || true
             [ -n "$ISSUE" ] && python .github/scripts/board.py "$ISSUE" "Done" || true
-            # Merges made with GITHUB_TOKEN fire no push event, so wake the watchdog by hand.
-            gh workflow run watchdog.yml || true
+            # A GITHUB_TOKEN merge fires no push event, so wake the watchdog by hand in that case.
+            [ -z "${{ secrets.GH_PAT }}" ] && gh workflow run watchdog.yml || true
           else
             echo "merge of PR #$PR failed, needs a human" >> "$GITHUB_STEP_SUMMARY"
             gh pr edit "$PR" --add-label needs-human || true
