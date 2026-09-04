@@ -44,11 +44,35 @@ jobs:
           fi
           echo '```' >> "$GITHUB_STEP_SUMMARY"; cat evidence.json >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
       - id: file
-        name: file ticket
+        name: file one ticket per broken invariant
         if: steps.harness.outputs.anomaly == 'true'
-        run: python agents/run.py watchdog --evidence evidence.json
-      - name: board and dispatch sdlc
+        # Each failing check gets its own evidence file and fingerprint, so one
+        # bad merge that breaks two rules makes two tickets. A red test suite
+        # alone is one ticket; with invariant failures it rides along as context.
+        run: |
+          python - <<'EOF'
+          import hashlib, json
+          e = json.load(open("evidence.json"))
+          tests = [f for f in e["failures"] if f["check"] == "tests_failing"]
+          checks = [f for f in e["failures"] if f["check"] != "tests_failing"] or tests
+          for i, f in enumerate(checks):
+              d = dict(e, failures=[f] + [t for t in tests if t is not f])
+              d["fingerprint"] = hashlib.sha1(f["check"].encode()).hexdigest()[:12]
+              json.dump(d, open(f"evidence-{i}.json", "w"), indent=2)
+          print(f"{len(checks)} ticket(s) to file")
+          EOF
+          FIRST=""
+          for f in evidence-*.json; do
+            OUT=$(python agents/run.py watchdog --evidence "$f" 2>&1 || true)
+            echo "$OUT" | tail -8
+            echo "$OUT" | grep -q "duplicate of open ticket" && continue
+            N=$(echo "$OUT" | grep -oE 'issues/[0-9]+' | tail -1 | cut -d/ -f2)
+            [ -n "$N" ] && python .github/scripts/board.py "$N" "Ready" || true
+            [ -z "$FIRST" ] && FIRST="$N"
+          done
+          echo "issue=$FIRST" >> "$GITHUB_OUTPUT"
+      - name: dispatch sdlc for the first new ticket
         if: steps.file.outputs.issue != ''
         run: |
-          python .github/scripts/board.py "${{ steps.file.outputs.issue }}" "Ready" || true
           gh workflow run sdlc.yml -f issue="${{ steps.file.outputs.issue }}" || true
+          echo "dispatched sdlc for #${{ steps.file.outputs.issue }}, the chain picks up the rest" >> "$GITHUB_STEP_SUMMARY"

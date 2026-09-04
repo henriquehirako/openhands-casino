@@ -21,10 +21,11 @@ guess beyond the evidence.
    ## Acceptance criteria
    - [ ] <the invariant holds again, stated concretely>
    - [ ] A regression test in tests/ covers this case
-   - [ ] `python agents/watchdog_check.py` exits 0
+   - [ ] `python agents/watchdog_check.py --rounds 2000 --seed 7` no longer reports `<check name>`
 
    ## Out of scope
    Changes to the harness thresholds. Fix the casino, not the check.
+   Other failing checks, if any, have their own tickets. Do not fix them here.
 
    watchdog-fingerprint: <fingerprint>
    ```
