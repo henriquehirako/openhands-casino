@@ -25,10 +25,14 @@ Skip a step only when there is truly nothing to do, and say so in the PR body.
    definition of done and CONVENTIONS.md. Fix what you find, amend nothing,
    add a commit if needed.
 7. Push and open the PR. `git push -u origin HEAD`. Then
-   `gh pr create --base main --title "<type>(<scope>): <title>" --body-file <file>`.
+   `gh pr create --base main --title "🤖 <type>(<scope>): <title>" --body-file <file>`.
+   The title starts with the robot emoji and the body starts with the bot
+   line. Both mark the PR as opened by an agent, not a human.
    PR body format:
 
    ```
+   🤖 Opened by coder-agent, an autonomous agent. No human wrote this PR.
+
    Closes #<issue>
 
    <two sentences: what changed and why>
