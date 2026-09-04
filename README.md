@@ -13,6 +13,16 @@ python -c "from casino.simulate import run; run(num_rounds=100, seed=42)"
 
 Leave `seed` unset (the default, `None`) for a fresh, unseeded run each time.
 
+Each round is settled against a bet: `bet` (default 10) is the amount at
+risk per round, `starting_bankroll` (default 1000) is where the bankroll
+starts. A natural blackjack (two cards totalling 21) pays 3:2; any other
+win, including a 21 made with three or more cards, pays 1:1; a push
+returns the bet. `run()` prints the final bankroll when the session ends.
+
+```
+python -c "from casino.simulate import run; run(num_rounds=100, seed=42, bet=25, starting_bankroll=500)"
+```
+
 ## Agent layer
 
 The casino is not the point. The point is the layer of agents that maintains it. The engineer is the product owner and writes tickets. Nothing else. Agents pick tickets, implement them, review the PR, fix findings, merge, and file new tickets from what they observe. Issue labels are the whole state machine. Every agent step shows up as a job in the GitHub Actions graph and as a comment on the PR or issue, so you can reconstruct what happened without having watched it.
