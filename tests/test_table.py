@@ -1,5 +1,6 @@
 import random
 
+import casino.table as table_module
 from casino.cards import Card
 from casino.hand import Hand
 from casino.strategies import BasicPlayerStrategy, StandardDealerStrategy
@@ -15,6 +16,16 @@ def _hand(*cards):
     for card in cards:
         hand.add(card)
     return hand
+
+
+class _FixedDeck:
+    """Deck stand-in that deals a predetermined sequence of cards."""
+
+    def __init__(self, cards, num_decks=1):
+        self._cards = list(cards)
+
+    def draw(self):
+        return self._cards.pop(0)
 
 
 def test_natural_blackjack_pays_three_to_two():
@@ -69,3 +80,35 @@ def test_play_round_outcome_has_payout_field():
     outcome = table.play_round()
 
     assert "payout" in outcome
+
+
+def test_dealer_wins_are_not_recorded_as_push(monkeypatch):
+    # player: 10+9=19 (stands), dealer: 10+6=16 then hits 5 -> 21 (stands)
+    cards = [
+        Card("10", "hearts"), Card("10", "clubs"),
+        Card("9", "spades"), Card("6", "diamonds"),
+        Card("5", "clubs"),
+    ]
+    monkeypatch.setattr(table_module, "Deck", lambda num_decks: _FixedDeck(cards))
+    table = _table(bet=10)
+
+    outcome = table.play_round()
+
+    assert outcome["player_value"] == 19
+    assert outcome["dealer_value"] == 21
+    assert outcome["winner"] == "dealer"
+
+
+def test_round_never_resolves_with_dealer_standing_under_17(monkeypatch):
+    # dealer's first two cards total 16 and must hit before the round can settle
+    cards = [
+        Card("10", "hearts"), Card("10", "clubs"),
+        Card("8", "spades"), Card("6", "diamonds"),
+        Card("2", "clubs"),
+    ]
+    monkeypatch.setattr(table_module, "Deck", lambda num_decks: _FixedDeck(cards))
+    table = _table(bet=10)
+
+    outcome = table.play_round()
+
+    assert outcome["dealer_value"] >= 17
