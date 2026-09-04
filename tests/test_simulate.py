@@ -42,3 +42,19 @@ def test_seed_given_seeds_random(monkeypatch, tmp_path):
     simulate.run(num_rounds=1, seed=42)
 
     assert calls == [((42,), {})]
+
+
+def test_prints_final_bankroll(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(simulate, "Monitor", lambda: Monitor(path=str(tmp_path / "d.jsonl")))
+
+    simulate.run(num_rounds=10, seed=3)
+
+    assert "Final bankroll:" in capsys.readouterr().out
+
+
+def test_zero_rounds_leaves_bankroll_unchanged(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(simulate, "Monitor", lambda: Monitor(path=str(tmp_path / "e.jsonl")))
+
+    simulate.run(num_rounds=0, seed=1, starting_bankroll=500)
+
+    assert "Final bankroll: 500" in capsys.readouterr().out
