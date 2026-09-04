@@ -102,15 +102,22 @@ def task_line(args: argparse.Namespace) -> str:
 
 
 def watchdog_duplicate(evidence_path: str) -> str | None:
-    """Return the URL of an open watchdog ticket with the same fingerprint, if any."""
+    """Return the URL of an open watchdog ticket carrying the same fingerprint, if any.
+
+    Reads bodies directly instead of GitHub search: search treats `word:` as a
+    qualifier and lags behind new issues by seconds to minutes.
+    """
     fp = json.loads(Path(evidence_path).read_text()).get("fingerprint", "")
     if not fp:
         return None
-    found = json.loads(
+    issues = json.loads(
         sh("gh", "issue", "list", "--state", "open", "--label", "agent:watchdog",
-           "--search", f"watchdog-fingerprint:{fp}", "--json", "url")
+           "--limit", "100", "--json", "url,body")
     )
-    return found[0]["url"] if found else None
+    for issue in issues:
+        if f"watchdog-fingerprint: {fp}" in (issue["body"] or ""):
+            return issue["url"]
+    return None
 
 
 def run_claude(role: str, prompt: str) -> dict:

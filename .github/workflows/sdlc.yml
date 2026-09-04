@@ -88,9 +88,12 @@ jobs:
       - uses: ./.github/actions/setup
       - id: run
         run: python agents/run.py coder --issue "${{ needs.janitor.outputs.issue }}"
-      - name: board
+      - name: ticket in review
+        # ready -> in-review so a chained run never picks this ticket twice.
         if: steps.run.outputs.pr != ''
-        run: python .github/scripts/board.py "${{ needs.janitor.outputs.issue }}" "In review" || true
+        run: |
+          gh issue edit "${{ needs.janitor.outputs.issue }}" --remove-label ready --add-label in-review
+          python .github/scripts/board.py "${{ needs.janitor.outputs.issue }}" "In review" || true
 
   reviewer:
     needs: coder
@@ -190,6 +193,7 @@ jobs:
             gh workflow run watchdog.yml || true
           else
             gh pr edit "$PR" --add-label needs-human
+            gh issue edit "${{ needs.janitor.outputs.issue }}" --add-label needs-human
             gh pr comment "$PR" --body "### sdlc: needs a human
           Tests were red after the review round. The agents stop here."
           fi
