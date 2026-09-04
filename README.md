@@ -12,11 +12,44 @@ Detection is code. A Python script decides that a dependency is unused, a module
 
 ### How to run it
 
-The repo variable `AGENTS_ENABLED=true` is the kill switch. Both workflows check it first and exit if it is anything else. With it on, `sdlc.yml` and `watchdog.yml` fire on their timers and `pr.yml` is dispatched by `sdlc.yml` for each PR. To fire them by hand run `gh workflow run sdlc.yml` or `gh workflow run watchdog.yml`.
+Secrets: `CLAUDE_CODE_OAUTH_TOKEN` for the agents. `GH_PAT`, optional, a user
+token so agent PRs fire real `pull_request` events and the board moves.
+Then one switch:
 
-Locally, one entry point runs one role per call: `python agents/run.py <role> [--issue N] [--pr N] [--fix findings.json] [--evidence evidence.json]`. The same command runs in Actions.
+```
+gh variable set AGENTS_ENABLED --body true     # off: every workflow exits at its first job
+```
 
-Secrets: `CLAUDE_CODE_OAUTH_TOKEN` is required. `PROJECT_TOKEN` is optional and only used to mirror labels onto the project board.
+From here nothing needs a click. To start a ticket now instead of at the
+next timer tick: `gh workflow run sdlc.yml -f issue=6`.
+
+Locally, one entry point runs one role per call, same command as in Actions:
+`python agents/run.py <role> [--issue N] [--pr N] [--fix findings.json] [--evidence evidence.json]`.
+
+### How it runs on its own
+
+Three workflows, all triggered by timers, pushes, or each other. Every run
+ends green: a red test, a failed review or a stuck coder becomes a label
+and a comment, never a failed job. The Actions list reads as a log.
+
+```
+ 1  sdlc · #6 · depth 0          timer or label       guard → janitor picks #6 → coder: branch, commits, PR #20
+                                                      ticket ready → in-review, dispatch ↓
+ 2  pr · #20 · round 0           dispatched by 1      guard → reviewer ‖ security ‖ ci → route
+                                                        both pass and green → dispatch 4
+                                                        findings or red    → fix → dispatch 3
+ 3  pr · #20 · round 1           dispatched by 2      same jobs again, max 2 rounds, then needs-human
+ 4  sdlc · merge PR #20          dispatched by 2/3    guard → merge: rebase, close #6, board Done → chain
+                                                        next ready ticket → dispatch 1 at depth+1
+ 5  watchdog · push              push to main from 4  harness: pytest + 2000 seeded rounds
+                                                        invariant broken → ticket born ready → dispatch 1
+ 6  sdlc · pick next             timer, queue empty   janitor scans, files one gap ticket, coder takes it
+```
+
+Guardrails: `AGENTS_ENABLED` stops everything at the next job. Chain depth
+caps at 20. One agent PR in flight at a time. Two fix rounds, then
+`needs-human`. Label `hold` keeps a ticket out of the queue. Watchdog
+tickets carry a fingerprint, one open ticket per failure.
 
 ### What each agent does and its trigger
 
@@ -26,21 +59,24 @@ Secrets: `CLAUDE_CODE_OAUTH_TOKEN` is required. `PROJECT_TOKEN` is optional and 
 | Coder    | ticket from Janitor; findings | Implements the definition of done, one commit per step, opens a PR. In fix mode it addresses review findings. | `coder-agent[bot]`    |
 | Reviewer | PR opened by Coder            | Audits the definition of done against the diff, the ticket and `CONVENTIONS.md`. Pass or fail per item. | `reviewer-agent[bot]` |
 | Security | PR opened by Coder, parallel  | Security-only review. Pass or fail.                                                            | `security-agent[bot]` |
-| Watchdog | timer, push to main           | Runs the test suite and a seeded 2000-round simulation. A failing test or broken invariant becomes a ticket born `ready`. | `watchdog-agent[bot]` |
-
-One ticket in flight at a time. `sdlc.yml` picks it and the coder opens a PR. `pr.yml` then runs reviewer, security and CI in parallel, one round per run: findings or red tests send it to the coder for a fix and the next round, up to two rounds. When both reviews pass and CI is green, `sdlc.yml` merges, and chains to the next `ready` ticket, up to depth 20. No run ever fails: anything the agents cannot finish gets `needs-human` and the loop moves on.
+| Watchdog | timer, push to main           | Runs the test suite and a seeded 2000-round simulation. A failing test or broken invariant becomes a ticket born `ready` and dispatches sdlc. | `watchdog-agent[bot]` |
 
 ### AI tools used and how
 
-Two separate things. Claude Code (Claude Fable 5.1) built this layer, with the engineer directing the work and reviewing every commit before it landed. The agents themselves are the deliverable. Each one is `agents/run.py` loading a role prompt from `agents/roles/<role>.md`, gathering context with `gh`, then calling `claude -p` with a per-role tool allowlist. Coder may edit, write, run git, python and gh. Reviewer and Security are read-only plus `gh pr review`. Each role commits under its own bot name so its work is easy to tell apart from the engineer's in the history.
+Two separate things. Claude Code (Claude Fable 5.1) built this layer, with the engineer directing the work and reviewing every commit before it landed. The agents themselves are the deliverable. Each one is `agents/run.py` loading a role prompt from `agents/roles/<role>.md`, gathering context with `gh`, then calling `claude -p` with a per-role tool allowlist. Coder may edit, write, run git, python and gh. Reviewer and Security read, run tests and post a review, they cannot push. Each role commits under its own bot name so its work is easy to tell apart from the engineer's in the history.
 
 ### What did not go as planned, and with more time
 
 TODO: HH fills this after the recording.
 
+Found by shakedown runs before recording, fixed: a bash redirect sent
+pytest output into `$GITHUB_OUTPUT`; a `#` in a single-line YAML step
+started a comment; GitHub search missed the watchdog fingerprint so a
+duplicate ticket was filed; `Closes #N` did not close the ticket on a bot
+merge; a squash merge re-authored the coder's commits as `github-actions`.
+
 Cut for the 2-hour budget:
 
-- Second review pass after fix. CI is the gate now.
 - Golden-file regression harness. Invariants and a win-rate band now.
 - Deterministic definition-of-done checks in CI (diff coverage, docstring lint). The Reviewer LLM does them from the diff now.
 - Human merge gate for feature tickets. None now, `needs-human` is the escape.
