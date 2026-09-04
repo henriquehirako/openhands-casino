@@ -1,4 +1,4 @@
-# One ticket per run: pick -> implement -> review ‖ security -> fix? -> ci -> merge -> chain.
+# One ticket per run: pick -> implement -> review ‖ security -> fix? -> ci -> merge | escalate -> chain.
 # Timer or dispatch starts it. The last job re-dispatches this workflow while
 # ready tickets remain. Concurrency keeps one run at a time; timer ticks that
 # land during a run are dropped, the chain covers them.
@@ -172,8 +172,6 @@ jobs:
       && needs.reviewer.result == 'success' && needs.security.result == 'success'
       && ((needs.reviewer.outputs.verdict == 'pass' && needs.security.outputs.verdict == 'pass') || needs.fix.result == 'success')
     runs-on: ubuntu-latest
-    outputs:
-      ok: ${{ steps.test.outputs.ok }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -181,36 +179,39 @@ jobs:
           python-version: "3.12"
       - run: pip install -q pytest
       - run: gh pr checkout "${{ needs.coder.outputs.pr }}"
-      - id: test
-        run: |
-          if python -m pytest tests/ -q; then echo "ok=true"; else echo "ok=false"; fi >> "$GITHUB_OUTPUT"
+      - run: python -m pytest tests/ -q
 
   merge:
+    # Green only when the PR actually merged. Skipped when ci did not pass.
     needs: [janitor, coder, ci]
-    if: always() && needs.coder.outputs.pr != ''
+    if: needs.ci.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: merge or escalate
-        run: |
+      - run: |
+          gh pr merge "${{ needs.coder.outputs.pr }}" --squash --delete-branch
+          python .github/scripts/board.py "${{ needs.janitor.outputs.issue }}" "Done" || true
+          # Merges made with GITHUB_TOKEN do not fire push events, so wake the watchdog by hand.
+          gh workflow run watchdog.yml || true
+
+  escalate:
+    # Runs instead of merge when a review errored, both did not pass, or tests were red.
+    needs: [janitor, coder, ci]
+    if: always() && needs.coder.outputs.pr != '' && needs.ci.result != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
           PR="${{ needs.coder.outputs.pr }}"
-          if [ "${{ needs.ci.outputs.ok }}" = "true" ]; then
-            gh pr merge "$PR" --squash --delete-branch
-            python .github/scripts/board.py "${{ needs.janitor.outputs.issue }}" "Done" || true
-            # Merges made with GITHUB_TOKEN do not fire push events, so wake the watchdog by hand.
-            gh workflow run watchdog.yml || true
-          else
-            gh pr edit "$PR" --add-label needs-human
-            gh issue edit "${{ needs.janitor.outputs.issue }}" --add-label needs-human
-            gh issue edit "${{ needs.janitor.outputs.issue }}" --remove-label ready --remove-label in-review || true
-            gh pr comment "$PR" --body "### sdlc: needs a human
+          gh pr edit "$PR" --add-label needs-human
+          gh issue edit "${{ needs.janitor.outputs.issue }}" --add-label needs-human --remove-label ready --remove-label in-review || true
+          gh pr comment "$PR" --body "### sdlc: needs a human
           Reviews did not both pass, or tests were red after the fix round. The agents stop here."
-          fi
 
   chain:
     # Re-dispatch while ready tickets remain. workflow_dispatch is the one
     # event GITHUB_TOKEN may trigger.
-    needs: [guard, merge]
+    needs: [guard, merge, escalate]
     if: always() && needs.guard.outputs.go == 'true'
     runs-on: ubuntu-latest
     steps:

@@ -29,7 +29,7 @@ writing code, reviewing code, writing a ticket from evidence.
 ### `sdlc.yml`: one ticket per run, then chain
 
 ```
-timer / dispatch → guard → janitor → coder → reviewer ‖ security → fix? → ci → merge → chain?
+timer / dispatch → guard → janitor → coder → reviewer ‖ security → fix? → ci → merge | escalate → chain?
 ```
 
 - `guard`: `vars.AGENTS_ENABLED == 'true'` and `inputs.depth < 20`.
@@ -43,8 +43,11 @@ timer / dispatch → guard → janitor → coder → reviewer ‖ security → f
 - `fix`: only if a verdict is fail. `run.py coder --pr N --fix findings.json`.
 - `ci`: pytest on the PR head. Runs inside this workflow because PRs made
   with `GITHUB_TOKEN` do not fire `pull_request` events.
-- `merge`: `gh pr merge --squash --delete-branch`. CI red: label
-  `needs-human`, comment, continue.
+- `merge`: `gh pr merge --squash --delete-branch`. Runs only when `ci`
+  passed, so a green `merge` box always means a merge happened.
+- `escalate`: runs instead of `merge` when a review errored, did not pass,
+  or tests were red. Labels PR and ticket `needs-human`, comments, and the
+  run continues to `chain`.
 - `chain`: another `ready` ticket exists: `gh workflow run sdlc.yml -f depth=N+1`.
   `workflow_dispatch` is the one event `GITHUB_TOKEN` may trigger.
 - `concurrency: group: sdlc, cancel-in-progress: false`. One run at a time.
