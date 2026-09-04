@@ -82,6 +82,36 @@ def test_play_round_outcome_has_payout_field():
     assert "payout" in outcome
 
 
+def test_round_never_resolves_with_dealer_standing_under_17(monkeypatch):
+    # dealer's first two cards total 16 and must hit before the round can settle
+    cards = [
+        Card("10", "hearts"), Card("10", "clubs"),
+        Card("8", "spades"), Card("6", "diamonds"),
+        Card("2", "clubs"),
+    ]
+    monkeypatch.setattr(table_module, "Deck", lambda num_decks: _FixedDeck(cards))
+    table = _table(bet=10)
+
+    outcome = table.play_round()
+
+    assert outcome["dealer_value"] >= 17
+
+
+def test_dealer_keeps_hitting_across_multiple_sub_17_totals(monkeypatch):
+    # dealer starts at 12 and must hit twice (12 -> 16 -> 19) before standing
+    cards = [
+        Card("10", "hearts"), Card("2", "clubs"),
+        Card("10", "spades"), Card("10", "diamonds"),
+        Card("4", "clubs"), Card("3", "hearts"),
+    ]
+    monkeypatch.setattr(table_module, "Deck", lambda num_decks: _FixedDeck(cards))
+    table = _table(bet=10)
+
+    outcome = table.play_round()
+
+    assert outcome["dealer_value"] == 19
+
+
 def test_dealer_wins_are_not_recorded_as_push(monkeypatch):
     # player: 10+8=18 (stands), dealer: 10+10=20 (stands) -> dealer beats player
     cards = [
