@@ -1,54 +1,33 @@
-# Casino Skeleton
+# Casino Skeleton, maintained by agents
 
-Blackjack simulator. `pip install pytest`, then `python -m pytest tests/ -q` to test and `python -m casino.simulate` to run a session.
+Blackjack simulator with a layer of agents that maintains it. The casino is
+the workload, the agents are the deliverable.
 
-The casino is standard library only. Beyond pytest there is nothing to install.
+- Screen recording: TODO link
+- Repo: https://github.com/henriquehirako/openhands-casino
+- Design: [ARCHITECTURE.md](ARCHITECTURE.md). Contracts: [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md), [CONVENTIONS.md](CONVENTIONS.md)
 
-Pass `seed` to `run()` for a reproducible session: the same `seed` and
-`num_rounds` always write the same `outcomes.jsonl`.
+## What we built
 
-```
-python -c "from casino.simulate import run; run(num_rounds=100, seed=42)"
-```
+Five agents run in GitHub Actions and maintain this repo without a human in
+the loop. The engineer writes tickets and labels them `ready`. Nothing else.
+Agents pick the ticket, implement it through a definition of done, review
+the PR from two angles, fix findings, merge, and file new tickets from what
+they observe in the code and in the casino's output. Issue labels are the
+whole state machine. Every step is a job in the Actions graph and a comment
+on the PR or issue, so anyone can reconstruct what happened later.
 
-Leave `seed` unset (the default, `None`) for a fresh, unseeded run each time.
+Detection is code, judgment is LLM. Python scripts decide that a test file
+is missing, a dependency is unused, or the dealer hit at 17. The LLM is
+called only to write code, review code, or turn evidence into a ticket. Each
+role commits under its own bot name. On `main` today: 16 commits by
+`coder-agent[bot]`, 6 agent-filed tickets, 6 agent PRs merged, all marked 🤖.
 
-Each round is settled against a bet: `bet` (default 10) is the amount at
-risk per round, `starting_bankroll` (default 1000) is where the bankroll
-starts. A natural blackjack (two cards totalling 21) pays 3:2; any other
-win, including a 21 made with three or more cards, pays 1:1; a push
-returns the bet. `run()` prints the final bankroll when the session ends.
+## How it runs
 
-```
-python -c "from casino.simulate import run; run(num_rounds=100, seed=42, bet=25, starting_bankroll=500)"
-```
-
-## Agent layer
-
-The casino is not the point. The point is the layer of agents that maintains it. The engineer is the product owner and writes tickets. Nothing else. Agents pick tickets, implement them, review the PR, fix findings, merge, and file new tickets from what they observe. Issue labels are the whole state machine. Every agent step shows up as a job in the GitHub Actions graph and as a comment on the PR or issue, so you can reconstruct what happened without having watched it.
-
-Detection is code. A Python script decides that a dependency is unused, a module has no test file, or the dealer hit at 17. The LLM is called only where judgment is needed: writing the code, reviewing the code, turning evidence into a ticket.
-
-### How to run it
-
-Secrets: `CLAUDE_CODE_OAUTH_TOKEN` for the agents. `GH_PAT`, optional, a user
-token so agent PRs fire real `pull_request` events and the board moves.
-Then one switch:
-
-```
-gh variable set AGENTS_ENABLED --body true     # off: every workflow exits at its first job
-```
-
-From here nothing needs a click. To start a ticket now instead of at the
-next timer tick: `gh workflow run sdlc.yml -f issue=6`.
-
-Locally, one entry point runs one role per call, same command as in Actions:
-`python agents/run.py <role> [--issue N] [--pr N] [--fix findings.json] [--evidence evidence.json]`.
-
-### How it runs on its own
-
-Three workflows trigger each other. No run ever fails: a red test, a failed
-review or a stuck coder becomes a label and a comment, and the loop moves on.
+Three workflows dispatch each other. No run ever goes red. A failing test, a
+failed review, or a stuck coder becomes a label and a comment, and the loop
+moves on.
 
 ```
  you: label a ticket "ready"        (or the 10-min timer, or a bot ticket)
@@ -80,44 +59,68 @@ review or a stuck coder becomes a label and a comment, and the loop moves on.
  └──────────────────────────────────────────┘
 ```
 
-Anything the agents cannot finish gets `needs-human` and the loop moves on.
-Queue empty: the janitor scans the repo and files one gap ticket itself.
-Humans only ever set `ready`.
+Queue empty: the janitor scans the repo for a gap and files one ticket
+itself. Anything the agents cannot finish gets `needs-human`. Guardrails:
+`AGENTS_ENABLED` stops everything at the next job, chain depth caps at 20,
+one agent PR in flight at a time, label `hold` parks a ticket, watchdog
+tickets carry a fingerprint so one failure makes one ticket.
 
-Guardrails: `AGENTS_ENABLED` stops everything at the next job. Chain depth
-caps at 20. One agent PR in flight at a time. Label `hold` keeps a ticket
-out of the queue. Watchdog tickets carry a fingerprint, one open ticket per
-failure.
+## Running the agent layer
 
-### What each agent does and its trigger
+Secrets: `CLAUDE_CODE_OAUTH_TOKEN` for the agents. `GH_PAT`, optional, so
+agent PRs fire real `pull_request` events. Then one switch:
 
-| Agent    | Trigger                       | Action                                                                                         | Identity              |
-|----------|-------------------------------|------------------------------------------------------------------------------------------------|-----------------------|
-| Janitor  | timer, chained run            | Picks the oldest `ready` ticket. If none, scans the repo for a gap, files a ticket born `ready`, picks it. | `janitor-agent[bot]`  |
-| Coder    | ticket from Janitor; findings | Implements the definition of done, one commit per step, opens a PR. In fix mode it addresses review findings. | `coder-agent[bot]`    |
-| Reviewer | PR opened by Coder            | Audits the definition of done against the diff, the ticket and `CONVENTIONS.md`. Pass or fail per item. | `reviewer-agent[bot]` |
-| Security | PR opened by Coder, parallel  | Security-only review. Pass or fail.                                                            | `security-agent[bot]` |
-| Watchdog | timer, push to main           | Runs the test suite and a seeded 2000-round simulation. A failing test or broken invariant becomes a ticket born `ready` and dispatches sdlc. | `watchdog-agent[bot]` |
+```
+gh variable set AGENTS_ENABLED --body true    # timers start, off stops every workflow at its first job
+gh workflow run sdlc.yml -f issue=6           # optional: start a ticket now instead of at the next tick
+```
 
-### AI tools used and how
+Locally, one entry point runs one role, same command as in Actions:
 
-Two separate things. Claude Code (Claude Fable 5.1) built this layer, with the engineer directing the work and reviewing every commit before it landed. The agents themselves are the deliverable. Each one is `agents/run.py` loading a role prompt from `agents/roles/<role>.md`, gathering context with `gh`, then calling `claude -p` with a per-role tool allowlist. Coder may edit, write, run git, python and gh. Reviewer and Security read, run tests and post a review, they cannot push. Each role commits under its own bot name so its work is easy to tell apart from the engineer's in the history.
+```
+python agents/run.py <role> [--issue N] [--pr N] [--fix findings.json] [--evidence evidence.json]
+```
 
-### What did not go as planned, and with more time
+## Agents and triggers
+
+| Agent    | Trigger                                  | Does                                                                                    | Commits as             |
+|----------|------------------------------------------|-----------------------------------------------------------------------------------------|------------------------|
+| Janitor  | `ready` label, 10-min timer, chained run | Picks the oldest `ready` ticket. None: scans the repo for a gap and files a ticket.      | `janitor-agent[bot]`   |
+| Coder    | ticket from Janitor; review findings     | Implements the definition of done, one commit per step, opens a 🤖 PR. Fix mode addresses findings. | `coder-agent[bot]`     |
+| Reviewer | PR opened by Coder                       | Audits the definition of done against diff, ticket, and conventions. Pass or fail per item. | `reviewer-agent[bot]`  |
+| Security | PR opened by Coder, in parallel          | Security-only review. Pass or fail.                                                     | `security-agent[bot]`  |
+| Watchdog | push to `main`, 10-min timer             | Runs tests plus 2000 seeded rounds. Each broken invariant becomes a `ready` ticket and dispatches sdlc. | `watchdog-agent[bot]`  |
+
+## AI tools used and how
+
+Two separate things. Claude Code (Claude Fable 5.1) built this layer, with
+the engineer directing and reviewing every commit before it landed. The
+agents themselves are the deliverable: `agents/run.py` loads a role prompt
+from `agents/roles/<role>.md`, gathers context with `gh`, and calls
+`claude -p` with a per-role tool allowlist. Coder may edit, run git, python
+and gh. Reviewer and Security read, run tests and post a review, they cannot
+push. Janitor and Watchdog only file issues.
+
+## What did not go as planned, and with more time
 
 TODO: HH fills this after the recording.
 
-Found by shakedown runs before recording, fixed: a bash redirect sent
-pytest output into `$GITHUB_OUTPUT`; a `#` in a single-line YAML step
-started a comment; GitHub search missed the watchdog fingerprint so a
-duplicate ticket was filed; `Closes #N` did not close the ticket on a bot
-merge; a squash merge re-authored the coder's commits as `github-actions`.
+Found in shakedown runs and fixed before recording: a bash redirect sent
+pytest output into `$GITHUB_OUTPUT`; a `#` in a one-line YAML step started
+a comment; GitHub search missed the watchdog fingerprint and filed a
+duplicate; `Closes #N` did not close the ticket on a bot merge; a squash
+merge re-authored the coder's commits as `github-actions`; one fix round
+reverted a previous fix, caught by the watchdog on the next push.
 
-Cut for the 2-hour budget:
+With more time: deterministic definition-of-done checks in CI (diff
+coverage, docstring lint) instead of the reviewer LLM doing them; a human
+merge gate for feature tickets; a golden-file regression harness; a
+dashboard from `outcomes.jsonl`.
 
-- Golden-file regression harness. Invariants and a win-rate band now.
-- Deterministic definition-of-done checks in CI (diff coverage, docstring lint). The Reviewer LLM does them from the diff now.
-- Human merge gate for feature tickets. None now, `needs-human` is the escape.
-- Dashboard from `outcomes.jsonl`.
+## The casino itself
 
-Design and reasoning are in [ARCHITECTURE.md](ARCHITECTURE.md). The contracts the agents work to are [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) and [CONVENTIONS.md](CONVENTIONS.md).
+Standard library only. `pip install pytest`, `python -m pytest tests/ -q`,
+`python -m casino.simulate`. `run(num_rounds, seed=None, bet=10,
+starting_bankroll=1000)` seeds the session for reproducible output, settles
+each round against a bet, pays 3:2 on a natural blackjack, and prints the
+final bankroll.
