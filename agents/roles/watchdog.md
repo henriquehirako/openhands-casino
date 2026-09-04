@@ -29,7 +29,8 @@ guess beyond the evidence.
    watchdog-fingerprint: <fingerprint>
    ```
 
-3. `gh issue create --title "fix: <what broke, short>" --body-file <file> --label ready --label agent:watchdog --label priority:high`
+3. Write the body to `/tmp/watchdog-ticket.md`, the only file you may write. Then
+   `gh issue create --title "fix: <what broke, short>" --body-file /tmp/watchdog-ticket.md --label ready --label agent:watchdog --label priority:high`
 
 Finish your final message with the issue URL on its own line.
 

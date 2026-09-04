@@ -25,7 +25,8 @@ ROLES = ROOT / "agents" / "roles"
 CONTRACTS = ["DEFINITION_OF_DONE.md", "CONVENTIONS.md"]
 
 # Tools each role may call. Coder edits and pushes. Reviewers only read
-# and post reviews. Janitor and watchdog only file issues.
+# and post reviews. Janitor and watchdog only file issues. Non-coders get
+# Write only for their own ticket or review body file under /tmp.
 ALLOWED_TOOLS = {
     "coder": [
         "Read", "Glob", "Grep", "Edit", "Write",
@@ -33,13 +34,13 @@ ALLOWED_TOOLS = {
         "Bash(python*)", "Bash(pip*)", "Bash(ls*)", "Bash(cat*)",
     ],
     "reviewer": [
-        "Read", "Glob", "Grep",
+        "Read", "Glob", "Grep", "Write",
         "Bash(git diff*)", "Bash(git log*)", "Bash(gh pr view*)",
         "Bash(gh pr diff*)", "Bash(gh pr review*)", "Bash(gh issue view*)",
         "Bash(python -m pytest*)", "Bash(grep*)", "Bash(ls*)", "Bash(cat*)",
     ],
-    "janitor": ["Read", "Glob", "Grep", "Bash(gh issue *)"],
-    "watchdog": ["Read", "Bash(gh issue *)"],
+    "janitor": ["Read", "Glob", "Grep", "Write", "Bash(gh issue *)"],
+    "watchdog": ["Read", "Write", "Bash(gh issue *)"],
 }
 ALLOWED_TOOLS["security"] = ALLOWED_TOOLS["reviewer"]
 MAX_TURNS = {"coder": 120, "reviewer": 40, "security": 40, "janitor": 20, "watchdog": 20}
@@ -115,6 +116,7 @@ def watchdog_duplicate(evidence_path: str) -> str | None:
 def run_claude(role: str, prompt: str) -> dict:
     """Call claude -p as the role. Git identity comes from env so no repo config changes."""
     env = dict(os.environ)
+    env.pop("CLAUDECODE", None)  # allow nesting when launched from a Claude Code session
     ident = f"{role}-agent[bot]"
     env.update({
         "GIT_AUTHOR_NAME": ident, "GIT_COMMITTER_NAME": ident,

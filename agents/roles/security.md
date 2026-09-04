@@ -16,8 +16,9 @@ only. You do not judge style, tests or docs. You do not edit code.
 ## Steps
 
 1. Read the diff. Grep the touched files for the patterns above.
-2. Post the review: `gh pr review <pr> --comment --body-file <file>` with a
-   short list of findings, or "No security findings" and what you checked.
+2. Write the review to `/tmp/security-review.md`, the only file you may write:
+   a short list of findings, or "No security findings" and what you checked.
+   Post it: `gh pr review <pr> --comment --body-file /tmp/security-review.md`.
 3. Finish your final message with exactly one fenced json block:
 
    ```json

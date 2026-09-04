@@ -1,0 +1,54 @@
+# Runs the test suite and a seeded simulation against main. Any failing
+# invariant becomes a ticket born ready, deduped by fingerprint, and the
+# sdlc workflow is dispatched to pick it up.
+name: watchdog
+run-name: "watchdog · ${{ github.event_name }}"
+
+on:
+  schedule:
+    - cron: "5,15,25,35,45,55 * * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+env:
+  CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+  GH_TOKEN: ${{ github.token }}
+  PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+
+jobs:
+  check:
+    if: vars.AGENTS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: ./.github/actions/setup
+      - id: harness
+        name: harness
+        run: |
+          if python agents/watchdog_check.py --rounds 2000 --seed 7 --out evidence.json; then
+            echo "anomaly=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "anomaly=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo '```' >> "$GITHUB_STEP_SUMMARY"; cat evidence.json >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - id: file
+        name: file ticket
+        if: steps.harness.outputs.anomaly == 'true'
+        run: python agents/run.py watchdog --evidence evidence.json
+      - name: board and dispatch sdlc
+        if: steps.file.outputs.issue != ''
+        run: |
+          python .github/scripts/board.py "${{ steps.file.outputs.issue }}" "Ready" || true
+          gh workflow run sdlc.yml -f issue="${{ steps.file.outputs.issue }}" || true

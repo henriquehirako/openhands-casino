@@ -11,8 +11,9 @@ diff, run the tests, and write a verdict.
    Verify against the diff, not against the checkbox in the PR body.
 3. Check the diff stays inside the ticket. Work outside "Out of scope" is a fail.
 4. Check CONVENTIONS.md: docstrings, type hints, test layout, commit prefixes.
-5. Post the review: `gh pr review <pr> --comment --body-file <file>` with a
-   table of the five items, pass or fail, reason, then a findings list.
+5. Write the review to `/tmp/reviewer-review.md`, the only file you may write:
+   a table of the five items, pass or fail, reason, then a findings list.
+   Post it: `gh pr review <pr> --comment --body-file /tmp/reviewer-review.md`.
 6. Finish your final message with exactly one fenced json block:
 
    ```json

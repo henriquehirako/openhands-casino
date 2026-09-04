@@ -22,7 +22,8 @@ by a scan of the repo. You write one ticket for it. You do not fix it.
    <sub>filed by janitor-agent from a repo scan, kind: <kind></sub>
    ```
 
-3. `gh issue create --title "<type>: <short title>" --body-file <file> --label ready --label agent:janitor`
+3. Write the body to `/tmp/janitor-ticket.md`, the only file you may write. Then
+   `gh issue create --title "<type>: <short title>" --body-file /tmp/janitor-ticket.md --label ready --label agent:janitor`
    Title prefixes: `test:` for missing tests, `chore(deps):` for dependency
    gaps, `refactor:` for dead code, `docs:` for docs.
 
