@@ -1,11 +1,8 @@
 # Casino Skeleton
 
-<<<<<<< HEAD
-Blackjack simulator. Run `python -m casino.simulate`.
-
-Standard library only. There is nothing to install.
-=======
 Blackjack simulator. `pip install pytest`, then `python -m pytest tests/ -q` to test and `python -m casino.simulate` to run a session.
+
+The casino is standard library only. Beyond pytest there is nothing to install.
 
 ## Agent layer
 
@@ -50,4 +47,3 @@ Cut for the 2-hour budget:
 - Dashboard from `outcomes.jsonl`.
 
 Design and reasoning are in [ARCHITECTURE.md](ARCHITECTURE.md). The contracts the agents work to are [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) and [CONVENTIONS.md](CONVENTIONS.md).
->>>>>>> origin/main
