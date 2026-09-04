@@ -1,9 +1,19 @@
+import random
+
 from .monitor import Monitor
 from .strategies import BasicPlayerStrategy, StandardDealerStrategy
 from .table import Table
 
 
-def run(num_rounds=100):
+def run(num_rounds: int = 100, seed: int | None = None) -> None:
+    """Play `num_rounds` rounds and log each outcome to outcomes.jsonl.
+
+    When `seed` is given, `random` is seeded first so the run is
+    reproducible: the same `seed` and `num_rounds` always produce the same
+    outcomes. `seed=None` leaves `random` unseeded, the prior behavior.
+    """
+    if seed is not None:
+        random.seed(seed)
     table = Table(BasicPlayerStrategy(), StandardDealerStrategy())
     monitor = Monitor()
     for _ in range(num_rounds):
