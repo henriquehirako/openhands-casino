@@ -61,6 +61,8 @@ jobs:
               json.dump(d, open(f"evidence-{i}.json", "w"), indent=2)
           print(f"{len(checks)} ticket(s) to file")
           EOF
+          # The role may Read files. Remove the combined evidence so each ticket sees one check only.
+          rm -f evidence.json
           FIRST=""
           for f in evidence-*.json; do
             OUT=$(python agents/run.py watchdog --evidence "$f" 2>&1 || true)
