@@ -54,9 +54,10 @@ dispatch. The Actions list reads as a log: `sdlc · #6`, `pr · #11 · round 0`,
   A verdict errored: human. Round below `MAX_ROUNDS` (2): fix. Else human.
 - `fix`: `run.py coder --pr N --fix fix.json` with review findings plus the
   pytest tail when red. Dispatches the next round.
-- `merge` in pr: dispatches `sdlc.yml` with `pr=N`. `merge` in sdlc: squash
-  merge, board to Done, dispatches the watchdog. A merge conflict is
-  `needs-human`.
+- `merge` in pr: dispatches `sdlc.yml` with `pr=N`. `merge` in sdlc: rebase
+  merge so every `coder-agent[bot]` commit lands on `main` under its own
+  name, closes the ticket, board to Done, dispatches the watchdog. A merge
+  conflict is `needs-human`.
 - `chain`: after a merge, or after a coder that opened no PR, dispatch
   sdlc for the next `ready` ticket at `depth+1`. `workflow_dispatch` is the
   one event `GITHUB_TOKEN` may trigger.
