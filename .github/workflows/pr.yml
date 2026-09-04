@@ -141,6 +141,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GH_PAT || github.token }}
       - uses: ./.github/actions/setup
       - uses: actions/download-artifact@v4
         with:
@@ -162,7 +163,10 @@ jobs:
           json.dump(out, open("fix.json", "w"), indent=2)
           print(json.dumps(out, indent=2))
           EOF
-      - run: python agents/run.py coder --pr "$PR" --fix fix.json || echo "coder fix exited non-zero" | tee -a "$GITHUB_STEP_SUMMARY"
+      - env:
+          # Push with GH_PAT so the PR gets a synchronize event and ci.yml re-runs in the checks tab.
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: python agents/run.py coder --pr "$PR" --fix fix.json || echo "coder fix exited non-zero" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: next round
         run: |
           gh workflow run pr.yml -f pr="$PR" -f issue="$ISSUE" -f round="$((ROUND + 1))"
