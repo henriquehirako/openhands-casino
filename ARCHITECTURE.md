@@ -26,33 +26,41 @@ writing code, reviewing code, writing a ticket from evidence.
 
 ## Workflows
 
-### `sdlc.yml`: one ticket per run, then chain
+### `sdlc.yml` and `pr.yml`: ticket lifecycle as a loop of green runs
 
 ```
-timer / dispatch → guard → janitor → coder → reviewer ‖ security → fix? → ci → merge | escalate → chain?
+sdlc  (timer / dispatch)   guard → janitor → coder ──dispatch──▶ pr round 0
+pr    (round r)            guard → reviewer ‖ security ‖ ci → route → fix ──dispatch──▶ pr round r+1
+                                                                    → merge ──dispatch──▶ sdlc pr=N
+                                                                    → human  (label needs-human)
+sdlc  (dispatch pr=N)      guard → merge → chain ──dispatch──▶ sdlc next ticket
 ```
 
-- `guard`: `vars.AGENTS_ENABLED == 'true'` and `inputs.depth < 20`.
-- `janitor`: `agents/select_ticket.py` picks oldest `ready` without `hold`.
-  Empty: `agents/janitor_scan.py` finds one gap, `run.py janitor` files it.
-  Output: `issue`.
+No run ever fails. A red test, a failed review, a coder that opened no PR
+are routes, not job failures: they become labels, comments and the next
+dispatch. The Actions list reads as a log: `sdlc · #6`, `pr · #11 · round 0`,
+`pr · #11 · round 1`, `sdlc · merge PR #11`, `sdlc · #7`.
+
+- `guard`: `vars.AGENTS_ENABLED == 'true'`, and `depth < 20` in sdlc.
+- `janitor`: nothing while an `agent/` PR is open, WIP is one. Else
+  `select_ticket.py` picks the oldest `ready` without `hold`. Empty:
+  `janitor_scan.py` finds one gap, `run.py janitor` files it born `ready`.
 - `coder`: `run.py coder --issue N`. Branch `agent/N-slug`, one commit per
-  definition-of-done step, PR with `Closes #N` and the checklist. Output: `pr`.
-- `reviewer`, `security`: `run.py reviewer --pr N`, `run.py security --pr N`.
-  Post a review comment. Output: `verdict` pass or fail plus findings file.
-- `fix`: only if a verdict is fail. `run.py coder --pr N --fix findings.json`.
-- `ci`: pytest on the PR head. Runs inside this workflow because PRs made
-  with `GITHUB_TOKEN` do not fire `pull_request` events.
-- `merge`: `gh pr merge --squash --delete-branch`. Runs only when `ci`
-  passed, so a green `merge` box always means a merge happened.
-- `escalate`: runs instead of `merge` when a review errored, did not pass,
-  or tests were red. Labels PR and ticket `needs-human`, comments, and the
-  run continues to `chain`.
-- `chain`: another `ready` ticket exists: `gh workflow run sdlc.yml -f depth=N+1`.
-  `workflow_dispatch` is the one event `GITHUB_TOKEN` may trigger.
-- `concurrency: group: sdlc, cancel-in-progress: false`. One run at a time.
-  Timer ticks during a run are dropped, the chain covers them.
-- `run-name: sdlc #${{ inputs.issue || 'pick' }} d${{ inputs.depth || 0 }}`.
+  definition-of-done step, PR with `Closes #N`. Ticket moves `ready` to
+  `in-review`. Dispatches `pr.yml` round 0. No PR: ticket gets `needs-human`.
+- `reviewer`, `security`, `ci` run in parallel on the PR head. `ci` lives
+  here because PRs made with `GITHUB_TOKEN` fire no `pull_request` event.
+- `route`: pure expression logic. Both verdicts pass and CI green: merge.
+  A verdict errored: human. Round below `MAX_ROUNDS` (2): fix. Else human.
+- `fix`: `run.py coder --pr N --fix fix.json` with review findings plus the
+  pytest tail when red. Dispatches the next round.
+- `merge` in pr: dispatches `sdlc.yml` with `pr=N`. `merge` in sdlc: squash
+  merge, board to Done, dispatches the watchdog. A merge conflict is
+  `needs-human`.
+- `chain`: after a merge, or after a coder that opened no PR, dispatch
+  sdlc for the next `ready` ticket at `depth+1`. `workflow_dispatch` is the
+  one event `GITHUB_TOKEN` may trigger.
+- Concurrency: `sdlc` one at a time, `pr-<N>` one per PR, no cancel.
 
 ### `watchdog.yml`: check, then file
 

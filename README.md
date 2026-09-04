@@ -12,7 +12,7 @@ Detection is code. A Python script decides that a dependency is unused, a module
 
 ### How to run it
 
-The repo variable `AGENTS_ENABLED=true` is the kill switch. Both workflows check it first and exit if it is anything else. With it on, `sdlc.yml` and `watchdog.yml` fire on their timers. To fire them by hand run `gh workflow run sdlc.yml` or `gh workflow run watchdog.yml`.
+The repo variable `AGENTS_ENABLED=true` is the kill switch. Both workflows check it first and exit if it is anything else. With it on, `sdlc.yml` and `watchdog.yml` fire on their timers and `pr.yml` is dispatched by `sdlc.yml` for each PR. To fire them by hand run `gh workflow run sdlc.yml` or `gh workflow run watchdog.yml`.
 
 Locally, one entry point runs one role per call: `python agents/run.py <role> [--issue N] [--pr N] [--fix findings.json] [--evidence evidence.json]`. The same command runs in Actions.
 
@@ -28,7 +28,7 @@ Secrets: `CLAUDE_CODE_OAUTH_TOKEN` is required. `PROJECT_TOKEN` is optional and 
 | Security | PR opened by Coder, parallel  | Security-only review. Pass or fail.                                                            | `security-agent[bot]` |
 | Watchdog | timer, push to main           | Runs the test suite and a seeded 2000-round simulation. A failing test or broken invariant becomes a ticket born `ready`. | `watchdog-agent[bot]` |
 
-One ticket per `sdlc.yml` run, one run at a time. If another `ready` ticket exists the run chains into the next one, up to depth 20. A PR merges only when both reviews pass (or were fixed once) and CI is green. Otherwise it gets `needs-human` and the run moves on.
+One ticket in flight at a time. `sdlc.yml` picks it and the coder opens a PR. `pr.yml` then runs reviewer, security and CI in parallel, one round per run: findings or red tests send it to the coder for a fix and the next round, up to two rounds. When both reviews pass and CI is green, `sdlc.yml` merges, and chains to the next `ready` ticket, up to depth 20. No run ever fails: anything the agents cannot finish gets `needs-human` and the loop moves on.
 
 ### AI tools used and how
 
