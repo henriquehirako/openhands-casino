@@ -3,10 +3,13 @@ from .hand import Hand
 
 
 class Table:
-    def __init__(self, player_strategy, dealer_strategy, num_decks=1):
+    """Deals blackjack rounds and settles each round against a fixed bet size."""
+
+    def __init__(self, player_strategy, dealer_strategy, num_decks=1, bet: float = 10):
         self.player_strategy = player_strategy
         self.dealer_strategy = dealer_strategy
         self.num_decks = num_decks
+        self.bet = bet
 
     def play_round(self):
         deck = Deck(self.num_decks)
@@ -48,4 +51,21 @@ class Table:
             "dealer_strategy": self.dealer_strategy.name,
             "player_value": player_hand.value(),
             "dealer_value": dealer_hand.value(),
+            "payout": self._payout(winner, player_hand),
         }
+
+    def _payout(self, winner, player_hand):
+        """Net change to the player's bankroll for the round.
+
+        A push returns the bet, so payout is 0. A natural blackjack (two
+        cards totalling 21) pays 3:2. Any other player win, including a
+        21 made with three or more cards, pays 1:1. A dealer win costs
+        the player the bet.
+        """
+        if winner == "push":
+            return 0
+        if winner == "dealer":
+            return -self.bet
+        if player_hand.is_blackjack():
+            return self.bet * 1.5
+        return self.bet
