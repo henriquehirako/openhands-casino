@@ -71,6 +71,12 @@ timer / push main → agents/watchdog_check.py → anomaly? → run.py watchdog 
 
 Standard. Agent PRs are covered inside `sdlc.yml`.
 
+### `.github/scripts/board.py`: board mirror
+
+Both workflows call it after each agent step. It adds the issue to project
+board 1 and sets the Status column from the label name. Needs the secret
+`PROJECT_TOKEN` (project scope). Unset: prints a notice, exits 0.
+
 ## Shared contracts
 
 - `DEFINITION_OF_DONE.md`: criteria met, tests, docs, deps current,
@@ -79,7 +85,8 @@ Standard. Agent PRs are covered inside `sdlc.yml`.
 - `CONVENTIONS.md`: code style, commit prefixes, branch names, test layout.
 - `.github/ISSUE_TEMPLATE/ticket.yml`: Goal, Acceptance criteria as
   checkboxes, Out of scope. Bots fill the same template.
-- Labels: `ready`, `hold`, `needs-human`, `agent:janitor`, `agent:watchdog`.
+- Labels: `ready`, `in-review`, `hold`, `needs-human`, `agent:janitor`, `agent:watchdog`,
+  `priority:high`. Coder moves a ticket from `ready` to `in-review` when its PR opens.
 
 ## `agents/run.py`
 
@@ -124,7 +131,6 @@ Same command locally and in Actions. Develop locally, wire Actions last.
 
 ## Cut for 2 hours, with more time
 
-- Kanban board mirror of labels. Labels only now.
 - Second review pass after fix. CI is the gate now.
 - Golden-file regression harness. Invariants and a band now.
 - Deterministic definition-of-done checks in CI: diff coverage, docstring

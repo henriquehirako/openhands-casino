@@ -1,0 +1,225 @@
+# One ticket per run: pick -> implement -> review ‖ security -> fix? -> ci -> merge -> chain.
+# Timer or dispatch starts it. The last job re-dispatches this workflow while
+# ready tickets remain. Concurrency keeps one run at a time; timer ticks that
+# land during a run are dropped, the chain covers them.
+name: sdlc
+run-name: "sdlc · ${{ inputs.issue != '' && format('#{0}', inputs.issue) || 'pick next' }} · depth ${{ inputs.depth || '0' }}"
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Issue number. Empty picks the oldest ready ticket."
+        required: false
+        default: ""
+      depth:
+        description: "Chain depth, set by the chain job."
+        required: false
+        default: "0"
+
+concurrency:
+  group: sdlc
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+env:
+  CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+  GH_TOKEN: ${{ github.token }}
+  PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+  DEPTH: ${{ inputs.depth || '0' }}
+  MAX_DEPTH: "20"
+
+jobs:
+  guard:
+    # Kill switch and chain bound. Everything else needs this job.
+    if: vars.AGENTS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+    steps:
+      - id: check
+        run: |
+          if [ "$DEPTH" -ge "$MAX_DEPTH" ]; then echo "go=false"; else echo "go=true"; fi >> "$GITHUB_OUTPUT"
+
+  janitor:
+    # Picks the oldest ready ticket. None: scans the repo, files one gap as a ticket.
+    needs: guard
+    if: needs.guard.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      issue: ${{ steps.pick.outputs.issue || steps.file.outputs.issue }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - id: pick
+        run: |
+          if [ -n "${{ inputs.issue }}" ]; then
+            echo "issue=${{ inputs.issue }}" >> "$GITHUB_OUTPUT"
+          else
+            python agents/select_ticket.py | python -c 'import json,sys; print("issue=" + str(json.load(sys.stdin).get("number","")))' >> "$GITHUB_OUTPUT"
+          fi
+      - id: file
+        if: steps.pick.outputs.issue == ''
+        run: |
+          python agents/janitor_scan.py --first > gap.json
+          if [ "$(cat gap.json)" = "null" ] || [ ! -s gap.json ]; then echo "no gaps"; exit 0; fi
+          python agents/run.py janitor --gap gap.json
+      - name: board
+        if: steps.pick.outputs.issue != '' || steps.file.outputs.issue != ''
+        run: python .github/scripts/board.py "${{ steps.pick.outputs.issue || steps.file.outputs.issue }}" "In progress" || true
+
+  coder:
+    needs: janitor
+    if: needs.janitor.outputs.issue != ''
+    runs-on: ubuntu-latest
+    outputs:
+      pr: ${{ steps.run.outputs.pr }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - id: run
+        run: python agents/run.py coder --issue "${{ needs.janitor.outputs.issue }}"
+      - name: ticket needs a human
+        # Coder failed or opened no PR: leave the ready queue so the chain cannot loop on it.
+        if: failure() || steps.run.outputs.pr == ''
+        run: gh issue edit "${{ needs.janitor.outputs.issue }}" --remove-label ready --add-label needs-human
+      - name: ticket in review
+        # ready -> in-review so a chained run never picks this ticket twice.
+        if: steps.run.outputs.pr != ''
+        run: |
+          gh issue edit "${{ needs.janitor.outputs.issue }}" --remove-label ready --add-label in-review
+          python .github/scripts/board.py "${{ needs.janitor.outputs.issue }}" "In review" || true
+
+  reviewer:
+    needs: coder
+    if: needs.coder.outputs.pr != ''
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.run.outputs.verdict }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: gh pr checkout "${{ needs.coder.outputs.pr }}"
+      - id: run
+        run: python agents/run.py reviewer --pr "${{ needs.coder.outputs.pr }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reviewer-findings
+          path: reviewer-findings.json
+          if-no-files-found: ignore
+
+  security:
+    needs: coder
+    if: needs.coder.outputs.pr != ''
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.run.outputs.verdict }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: gh pr checkout "${{ needs.coder.outputs.pr }}"
+      - id: run
+        run: python agents/run.py security --pr "${{ needs.coder.outputs.pr }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-findings
+          path: security-findings.json
+          if-no-files-found: ignore
+
+  fix:
+    # One fix round. Runs only when a reviewer said fail.
+    needs: [coder, reviewer, security]
+    if: needs.reviewer.outputs.verdict == 'fail' || needs.security.outputs.verdict == 'fail'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          path: findings
+      - name: merge findings
+        run: |
+          python - <<'EOF'
+          import json, glob
+          out = {"findings": []}
+          for f in glob.glob("findings/*/*.json"):
+              out["findings"] += json.load(open(f)).get("findings", [])
+          json.dump(out, open("fix.json", "w"), indent=2)
+          print(json.dumps(out, indent=2))
+          EOF
+      - run: python agents/run.py coder --pr "${{ needs.coder.outputs.pr }}" --fix fix.json
+
+  ci:
+    # Tests on the PR head. Lives here because PRs made with GITHUB_TOKEN do
+    # not fire pull_request events.
+    needs: [coder, reviewer, security, fix]
+    # Both review jobs must have finished with a verdict. Then either both passed, or the fix round ran and succeeded.
+    if: >-
+      always() && needs.coder.outputs.pr != ''
+      && needs.reviewer.result == 'success' && needs.security.result == 'success'
+      && ((needs.reviewer.outputs.verdict == 'pass' && needs.security.outputs.verdict == 'pass') || needs.fix.result == 'success')
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.test.outputs.ok }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest
+      - run: gh pr checkout "${{ needs.coder.outputs.pr }}"
+      - id: test
+        run: |
+          if python -m pytest tests/ -q; then echo "ok=true"; else echo "ok=false"; fi >> "$GITHUB_OUTPUT"
+
+  merge:
+    needs: [janitor, coder, ci]
+    if: always() && needs.coder.outputs.pr != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: merge or escalate
+        run: |
+          PR="${{ needs.coder.outputs.pr }}"
+          if [ "${{ needs.ci.outputs.ok }}" = "true" ]; then
+            gh pr merge "$PR" --squash --delete-branch
+            python .github/scripts/board.py "${{ needs.janitor.outputs.issue }}" "Done" || true
+            # Merges made with GITHUB_TOKEN do not fire push events, so wake the watchdog by hand.
+            gh workflow run watchdog.yml || true
+          else
+            gh pr edit "$PR" --add-label needs-human
+            gh issue edit "${{ needs.janitor.outputs.issue }}" --add-label needs-human
+            gh issue edit "${{ needs.janitor.outputs.issue }}" --remove-label ready --remove-label in-review || true
+            gh pr comment "$PR" --body "### sdlc: needs a human
+          Reviews did not both pass, or tests were red after the fix round. The agents stop here."
+          fi
+
+  chain:
+    # Re-dispatch while ready tickets remain. workflow_dispatch is the one
+    # event GITHUB_TOKEN may trigger.
+    needs: [guard, merge]
+    if: always() && needs.guard.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          NEXT=$(python agents/select_ticket.py | python -c 'import json,sys; print(json.load(sys.stdin).get("number",""))')
+          if [ -n "$NEXT" ]; then
+            echo "next ticket #$NEXT, chaining at depth $((DEPTH + 1))"
+            gh workflow run sdlc.yml -f issue="$NEXT" -f depth="$((DEPTH + 1))"
+          else
+            echo "no ready tickets, chain ends"
+          fi
