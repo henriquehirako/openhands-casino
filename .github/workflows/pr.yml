@@ -48,7 +48,8 @@ jobs:
     if: vars.AGENTS_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "reviewing PR #$PR, round $ROUND of $MAX_ROUNDS" >> "$GITHUB_STEP_SUMMARY"
+      - run: |
+          echo "reviewing PR #$PR, round $ROUND of $MAX_ROUNDS" >> "$GITHUB_STEP_SUMMARY"
 
   reviewer:
     needs: guard
