@@ -1,0 +1,28 @@
+name: Ticket
+description: Work for the agent layer. Add the `ready` label when it is complete.
+labels: []
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: One paragraph. What changes for the user of this code and why.
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria
+      description: Checkboxes. Each one testable.
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: What the coder must not touch.
+    validations:
+      required: false

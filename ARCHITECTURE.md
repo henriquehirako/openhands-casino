@@ -85,7 +85,8 @@ board 1 and sets the Status column from the label name. Needs the secret
 - `CONVENTIONS.md`: code style, commit prefixes, branch names, test layout.
 - `.github/ISSUE_TEMPLATE/ticket.yml`: Goal, Acceptance criteria as
   checkboxes, Out of scope. Bots fill the same template.
-- Labels: `ready`, `hold`, `needs-human`, `agent:janitor`, `agent:watchdog`.
+- Labels: `ready`, `in-review`, `hold`, `needs-human`, `agent:janitor`, `agent:watchdog`,
+  `priority:high`. Coder moves a ticket from `ready` to `in-review` when its PR opens.
 
 ## `agents/run.py`
 
