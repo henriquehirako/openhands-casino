@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- docs(monitor): add module docstring to `casino/monitor.py` (#44)
 - docs(hand): add module, class, and method docstrings to `casino/hand.py` (#42)
 - docs(cards): add module and class docstrings to `casino/cards.py` (#40)
 - test: add `tests/test_monitor.py` covering `Monitor.record`'s one-line-per-record append behavior and the `OUTCOMES_PATH` default (#38)
