@@ -31,58 +31,39 @@ Locally, one entry point runs one role per call, same command as in Actions:
 Three workflows trigger each other. No run ever fails: a red test, a failed
 review or a stuck coder becomes a label and a comment, and the loop moves on.
 
-```mermaid
-flowchart LR
-    T([timer or label ready]) --> S
-
-    subgraph S[sdlc.yml]
-        direction LR
-        janitor[janitor<br/>pick oldest ready ticket<br/>none: file a gap ticket] --> coder[coder<br/>branch, commits, PR]
-    end
-
-    coder -- dispatch --> P
-
-    subgraph P[pr.yml, one round per run]
-        direction LR
-        reviewer[reviewer] --> route{route}
-        security[security] --> route
-        ci[ci] --> route
-        route -- findings or red --> fix[coder: fix<br/>next round, max 2]
-        route -- 2 rounds spent --> human[needs-human]
-    end
-
-    fix -- dispatch --> P
-    route -- both pass, ci green --> M
-
-    subgraph M[sdlc.yml, merge mode]
-        direction LR
-        merge[merge<br/>rebase, close ticket] --> chain[chain<br/>next ready ticket]
-    end
-
-    chain -- dispatch --> S
-    merge -- push to main --> W
-
-    subgraph W[watchdog.yml]
-        direction LR
-        harness[harness<br/>pytest + 2000 seeded rounds] -- invariant broken --> ticket[ticket born ready]
-    end
-
-    ticket -- dispatch --> S
+```
+ you: label a ticket "ready"        (or the 10-min timer, or a bot ticket)
+            │
+            ▼
+ ┌─ sdlc ───────────────────────────────────┐
+ │  janitor picks ticket ──► coder opens PR │
+ └──────────────────────────────┬───────────┘
+                                │ dispatch
+                                ▼
+ ┌─ pr (one round per run) ─────────────────┐
+ │  reviewer ┐                              │
+ │  security ├──► route ──► green? ──yes──┐ │
+ │  ci       ┘        │                   │ │
+ │                    └──no──► coder fix  │ │
+ │                              (max 2)   │ │
+ │                                 │      │ │
+ └─────────────────────────────────┼──────┼─┘
+             next round ◄──────────┘      │ dispatch
+                                          ▼
+ ┌─ sdlc (merge mode) ──────────────────────┐
+ │  merge PR ──► close ticket ──► chain ────┼──► next ready ticket ──► sdlc (top)
+ └──────────────┬───────────────────────────┘
+                │ push to main
+                ▼
+ ┌─ watchdog ───────────────────────────────┐
+ │  tests + 2000 seeded rounds              │
+ │  invariant broken? ──► new ticket "ready"┼──► sdlc (top)
+ └──────────────────────────────────────────┘
 ```
 
-A ticket moves through labels. Humans only ever set `ready`.
-
-```mermaid
-stateDiagram-v2
-    [*] --> backlog: human, janitor or watchdog writes it
-    backlog --> ready: human adds label
-    backlog --> ready: bot ticket, born ready
-    ready --> in_review: coder opened the PR
-    in_review --> closed: PR merged
-    in_review --> needs_human: 2 fix rounds failed
-    ready --> needs_human: coder opened no PR
-    needs_human --> ready: human resets it
-```
+Anything the agents cannot finish gets `needs-human` and the loop moves on.
+Queue empty: the janitor scans the repo and files one gap ticket itself.
+Humans only ever set `ready`.
 
 Guardrails: `AGENTS_ENABLED` stops everything at the next job. Chain depth
 caps at 20. One agent PR in flight at a time. Label `hold` keeps a ticket
