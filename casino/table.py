@@ -38,7 +38,7 @@ class Table:
         if player_hand.value() > dealer_hand.value():
             winner = "player"
         elif player_hand.value() < dealer_hand.value():
-            winner = "push"
+            winner = "dealer"
         else:
             winner = "push"
 
