@@ -28,28 +28,66 @@ Locally, one entry point runs one role per call, same command as in Actions:
 
 ### How it runs on its own
 
-Three workflows, all triggered by timers, pushes, or each other. Every run
-ends green: a red test, a failed review or a stuck coder becomes a label
-and a comment, never a failed job. The Actions list reads as a log.
+Three workflows trigger each other. No run ever fails: a red test, a failed
+review or a stuck coder becomes a label and a comment, and the loop moves on.
 
+```mermaid
+flowchart LR
+    T([timer or label ready]) --> S
+
+    subgraph S[sdlc.yml]
+        direction LR
+        janitor[janitor<br/>pick oldest ready ticket<br/>none: file a gap ticket] --> coder[coder<br/>branch, commits, PR]
+    end
+
+    coder -- dispatch --> P
+
+    subgraph P[pr.yml, one round per run]
+        direction LR
+        reviewer[reviewer] --> route{route}
+        security[security] --> route
+        ci[ci] --> route
+        route -- findings or red --> fix[coder: fix<br/>next round, max 2]
+        route -- 2 rounds spent --> human[needs-human]
+    end
+
+    fix -- dispatch --> P
+    route -- both pass, ci green --> M
+
+    subgraph M[sdlc.yml, merge mode]
+        direction LR
+        merge[merge<br/>rebase, close ticket] --> chain[chain<br/>next ready ticket]
+    end
+
+    chain -- dispatch --> S
+    merge -- push to main --> W
+
+    subgraph W[watchdog.yml]
+        direction LR
+        harness[harness<br/>pytest + 2000 seeded rounds] -- invariant broken --> ticket[ticket born ready]
+    end
+
+    ticket -- dispatch --> S
 ```
- 1  sdlc · #6 · depth 0          timer or label       guard → janitor picks #6 → coder: branch, commits, PR #20
-                                                      ticket ready → in-review, dispatch ↓
- 2  pr · #20 · round 0           dispatched by 1      guard → reviewer ‖ security ‖ ci → route
-                                                        both pass and green → dispatch 4
-                                                        findings or red    → fix → dispatch 3
- 3  pr · #20 · round 1           dispatched by 2      same jobs again, max 2 rounds, then needs-human
- 4  sdlc · merge PR #20          dispatched by 2/3    guard → merge: rebase, close #6, board Done → chain
-                                                        next ready ticket → dispatch 1 at depth+1
- 5  watchdog · push              push to main from 4  harness: pytest + 2000 seeded rounds
-                                                        invariant broken → ticket born ready → dispatch 1
- 6  sdlc · pick next             timer, queue empty   janitor scans, files one gap ticket, coder takes it
+
+A ticket moves through labels. Humans only ever set `ready`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> backlog: human, janitor or watchdog writes it
+    backlog --> ready: human adds label
+    backlog --> ready: bot ticket, born ready
+    ready --> in_review: coder opened the PR
+    in_review --> closed: PR merged
+    in_review --> needs_human: 2 fix rounds failed
+    ready --> needs_human: coder opened no PR
+    needs_human --> ready: human resets it
 ```
 
 Guardrails: `AGENTS_ENABLED` stops everything at the next job. Chain depth
-caps at 20. One agent PR in flight at a time. Two fix rounds, then
-`needs-human`. Label `hold` keeps a ticket out of the queue. Watchdog
-tickets carry a fingerprint, one open ticket per failure.
+caps at 20. One agent PR in flight at a time. Label `hold` keeps a ticket
+out of the queue. Watchdog tickets carry a fingerprint, one open ticket per
+failure.
 
 ### What each agent does and its trigger
 
