@@ -1,3 +1,5 @@
+"""Bare-bones outcome logging: appends game results to `outcomes.jsonl`."""
+
 import json
 import os
 
