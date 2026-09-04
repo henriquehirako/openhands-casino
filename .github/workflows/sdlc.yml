@@ -7,11 +7,13 @@
 # CI is green. Failures never fail a job: they become labels and comments.
 # WIP is one: janitor picks nothing while an agent/ PR is open.
 name: sdlc
-run-name: "sdlc · ${{ inputs.pr != '' && format('merge PR #{0}', inputs.pr) || (inputs.issue != '' && format('#{0}', inputs.issue) || 'pick next') }} · depth ${{ inputs.depth || '0' }}"
+run-name: "sdlc · ${{ inputs.pr != '' && format('merge PR #{0}', inputs.pr) || (inputs.issue != '' && format('#{0}', inputs.issue) || (github.event.issue.number && format('#{0} labeled', github.event.issue.number) || 'pick next')) }} · depth ${{ inputs.depth || '0' }}"
 
 on:
   schedule:
     - cron: "*/10 * * * *"
+  issues:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       issue:
@@ -46,8 +48,8 @@ env:
 
 jobs:
   guard:
-    # Kill switch and chain bound.
-    if: vars.AGENTS_ENABLED == 'true'
+    # Kill switch and chain bound. On issue events only the ready label counts.
+    if: vars.AGENTS_ENABLED == 'true' && (github.event_name != 'issues' || github.event.label.name == 'ready')
     runs-on: ubuntu-latest
     outputs:
       go: ${{ steps.check.outputs.go }}
