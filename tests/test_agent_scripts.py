@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agents"))
 import janitor_scan  # noqa: E402
 import watchdog_check  # noqa: E402
 from select_ticket import pick  # noqa: E402
+from run import BOT_LINE, bot_pr_marks  # noqa: E402
 
 
 def _issue(number, created, *labels):
@@ -101,3 +102,10 @@ def test_fingerprint_is_stable_and_order_free():
     a = [{"check": "x", "detail": "1"}, {"check": "y", "detail": "2"}]
     assert watchdog_check.fingerprint(a) == watchdog_check.fingerprint(list(reversed(a)))
     assert watchdog_check.fingerprint([]) != watchdog_check.fingerprint(a)
+
+
+def test_bot_pr_marks_adds_once():
+    title, body = bot_pr_marks("feat(x): y", "Closes #1")
+    assert title == "🤖 feat(x): y"
+    assert body.startswith(BOT_LINE + "\n\n") and body.endswith("Closes #1")
+    assert bot_pr_marks(title, body) == (title, body)

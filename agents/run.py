@@ -160,6 +160,27 @@ def parse_verdict(text: str) -> dict | None:
     return None
 
 
+BOT_MARK = "🤖"
+BOT_LINE = "🤖 Opened by coder-agent, an autonomous agent. No human wrote this PR."
+
+
+def bot_pr_marks(title: str, body: str) -> tuple[str, str]:
+    """Return title and body with the bot marks added. Idempotent."""
+    if not title.startswith(BOT_MARK):
+        title = f"{BOT_MARK} {title}"
+    if BOT_LINE not in body:
+        body = f"{BOT_LINE}\n\n{body}"
+    return title, body
+
+
+def mark_bot_pr(pr: int) -> None:
+    """Make sure a PR opened by an agent carries the bot marks. Backstop for the role prompt."""
+    cur = gh_json("pr", "view", str(pr), "--json", "title,body")
+    title, body = bot_pr_marks(cur["title"], cur["body"] or "")
+    if (title, body) != (cur["title"], cur["body"] or ""):
+        sh("gh", "pr", "edit", str(pr), "--title", title, "--body", body, check=False)
+
+
 def set_output(key: str, value: str) -> None:
     """Write a key=value line to $GITHUB_OUTPUT when running in Actions."""
     path = os.environ.get("GITHUB_OUTPUT")
@@ -216,6 +237,8 @@ def main() -> None:
     if m and not pr:
         pr = int(m.group(1))
         set_output("pr", str(pr))
+        if args.role == "coder":
+            mark_bot_pr(pr)
     m = re.search(r"/issues/(\d+)", text)
     if m and not issue:
         issue = int(m.group(1))
