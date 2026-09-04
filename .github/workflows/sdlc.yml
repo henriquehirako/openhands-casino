@@ -128,8 +128,12 @@ jobs:
         run: |
           PR="${{ inputs.pr }}"
           ISSUE="${{ inputs.issue }}"
-          if gh pr merge "$PR" --squash --delete-branch; then
+          # Rebase merge keeps each coder-agent[bot] commit on main, a squash would
+          # re-author them as github-actions[bot].
+          if gh pr merge "$PR" --rebase --delete-branch; then
             echo "merged PR #$PR" >> "$GITHUB_STEP_SUMMARY"
+            # Close the ticket by hand. The Closes #N link did not fire on a bot merge.
+            [ -n "$ISSUE" ] && gh issue close "$ISSUE" --comment "Merged in PR #$PR by sdlc." || true
             [ -n "$ISSUE" ] && python .github/scripts/board.py "$ISSUE" "Done" || true
             # Merges made with GITHUB_TOKEN fire no push event, so wake the watchdog by hand.
             gh workflow run watchdog.yml || true
