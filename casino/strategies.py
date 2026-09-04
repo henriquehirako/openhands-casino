@@ -31,4 +31,4 @@ class StandardDealerStrategy(DealerStrategy):
     name = "standard_17"
 
     def should_hit(self, hand):
-        return hand.value() < 16
+        return hand.value() < 17

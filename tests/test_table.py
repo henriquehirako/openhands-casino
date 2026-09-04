@@ -21,10 +21,10 @@ def _hand(*cards):
 class _FixedDeck:
     """Deck stand-in that deals a predetermined sequence of cards."""
 
-    def __init__(self, cards):
+    def __init__(self, cards: list[Card]) -> None:
         self._cards = list(cards)
 
-    def draw(self):
+    def draw(self) -> Card:
         return self._cards.pop(0)
 
 
