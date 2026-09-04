@@ -4,3 +4,4 @@ __pycache__/
 outcomes.jsonl
 .venv/
 .envrc
+evidence.json
