@@ -5,3 +5,4 @@ outcomes.jsonl
 .venv/
 .envrc
 evidence.json
+.claude/
